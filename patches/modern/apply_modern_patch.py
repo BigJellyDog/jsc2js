@@ -388,9 +388,18 @@ void Shell::LoadJSC(const FunctionCallbackInfo<Value>& args) {{
     i::AlignedCachedData cached_data(
         reinterpret_cast<const uint8_t*>(file_data.data()),
         static_cast<int>(file_data.size()));
+    // The cache stores source positions for the original source. Rebuild a
+    // placeholder of the same length (taken from the header source hash, whose
+    // top bit is the module flag) so position lookups stay in bounds.
+    const uint32_t source_hash =
+        base::ReadLittleEndianValue<uint32_t>(
+            cache_start + i::SerializedCodeData::kSourceHashOffset);
+    const std::string placeholder_source(source_hash & 0x7FFFFFFFu, ' ');
     i::DirectHandle<i::String> source =
         isolate->factory()
-            ->NewStringFromUtf8(base::CStrVector("source"))
+            ->NewStringFromOneByte(base::Vector<const uint8_t>(
+                reinterpret_cast<const uint8_t*>(placeholder_source.data()),
+                placeholder_source.size()))
             .ToHandleChecked();
     i::ScriptDetails script_details;
     i::MaybeDirectHandle<i::SharedFunctionInfo> maybe_function =
