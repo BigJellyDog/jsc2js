@@ -502,6 +502,26 @@ def windows_warning_policy_gn_arg(v8_root: Path = Path("v8")) -> str:
     return "treat_warnings_as_errors = false\n"
 
 
+def electron_memory_model_gn_args(version: str) -> str:
+    """Match the V8 memory model Electron 42 ships (V8 >= 14.7).
+
+    Electron builds V8 with pointer compression, shared cage and the V8
+    sandbox. A d8 built without them lays heap objects out differently, so
+    Electron code caches crash its deserializer.
+    """
+    try:
+        parts = tuple(int(p) for p in version.split(".")[:2])
+    except ValueError:
+        return ""
+    if parts < (14, 7):
+        return ""
+    return (
+        "v8_enable_pointer_compression = true\n"
+        "v8_enable_pointer_compression_shared_cage = true\n"
+        "v8_enable_sandbox = true\n"
+    )
+
+
 def configure_in_tree_gyp(version: str) -> bool:
     """Select V8 5.1's native GYP/Ninja generator, or clear stale batch state."""
     if not uses_in_tree_gyp(version):
@@ -995,6 +1015,7 @@ def main():
                     "symbol_level = 0\n"
                     "v8_enable_disassembler = true\n"
                     + object_print_gn_arg(Path("v8"))
+                    + electron_memory_model_gn_args(ver)
                     + linux_legacy_gn_args
                     + windows_warning_policy_gn_arg(Path("v8"))
                     + (windows_linker_arg(Path("v8")) if os_name == "Windows" else ""),
