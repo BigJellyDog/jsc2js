@@ -33,13 +33,16 @@ env:
 
 jobs:
   build:
-    name: Build ${{ matrix.os }} - ${{ inputs.version }}
+    name: Build ${{ matrix.os }} ${{ matrix.variant }} - ${{ inputs.version }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 330
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, windows-2022]
+        os: [windows-2022]
+        # GN-arg variants of the Electron memory model (see
+        # electron_memory_model_gn_args); each reports its own valid-cache smoke.
+        variant: [stock, pc, pc-sandbox, electron-nosandbox, electron]
     env:
       ASSIGNED_JSON: ${{ inputs.versions_json || format('["{0}"]', inputs.version) }}
       DEPOT_TOOLS_WIN_TOOLCHAIN: "0"
@@ -47,6 +50,8 @@ jobs:
       # Validation batches stay within one audited API family. Reusing Ninja
       # outputs makes tags 2-3 incremental while `gn gen` still runs per tag.
       KEEP_WORK_DIR: "1"
+      JSC2JS_GN_VARIANT: ${{ matrix.variant }}
+      JSC2JS_VALID_CACHE_SOFT: "1"
     steps:
       - name: Checkout infra repo
         uses: actions/checkout@v4
@@ -268,6 +273,7 @@ jobs:
               'import json, pathlib, sys; p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text()); d[sys.argv[2]]=sys.argv[3]; p.write_text(json.dumps(d))' \
               "$mapping" "$v8_version" "$cache_path"
           }
+          generate_fixture "14.8.178.33" "42.5.2"
           generate_fixture "14.8.178.38" "42.8.1"
           generate_fixture "15.0.1240245" "43.2.0"
           generate_fixture "15.2.124.5" "44.0.0-beta.2"
@@ -282,11 +288,24 @@ jobs:
           "$JSC2JS_PYTHON3" build_versions_batch_v3.py
           echo "Single-version build finished (see failed_versions.txt if any)."
 
+      - name: Report valid-cache result
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### ${{ matrix.variant }}: valid-cache smoke"
+            echo '```'
+            for f in artifacts/*/*/runtime_valid_cache_smoke.txt artifacts/*/runtime_valid_cache_smoke.txt; do
+              [ -f "$f" ] && head -c 1500 "$f" && echo
+            done
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Upload build artifacts
         if: always() && !inputs.audit_only
         uses: actions/upload-artifact@v4
         with:
-          name: d8-${{ inputs.version }}-${{ matrix.os }}
+          name: d8-${{ inputs.version }}-${{ matrix.os }}-${{ matrix.variant }}
           path: |
             artifacts/**
             success_versions.txt

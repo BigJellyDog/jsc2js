@@ -515,17 +515,34 @@ def electron_memory_model_gn_args(version: str) -> str:
         return ""
     if parts < (14, 7):
         return ""
-    return (
+    pointer_compression = (
         "v8_enable_pointer_compression = true\n"
         "v8_enable_pointer_compression_shared_cage = true\n"
-        "v8_enable_sandbox = true\n"
-        # Electron all.gn: embedder fields change JSPromise map sizes (RO heap),
-        # so caches reference RO pages a stock d8 does not lay out.
+    )
+    sandbox = "v8_enable_sandbox = true\n"
+    # Electron all.gn: embedder fields change JSPromise map sizes (RO heap),
+    # so caches reference RO pages a stock d8 does not lay out.
+    electron_all_gn = (
         "v8_promise_internal_field_count = 1\n"
         'v8_embedder_string = "-electron.0"\n'
         "v8_enable_javascript_promise_hooks = true\n"
         "v8_enable_snapshot_native_code_counters = false\n"
     )
+    # CI builds several variants in parallel to find which one reproduces
+    # Electron's read-only heap; JSC2JS_GN_VARIANT selects one.
+    variants = {
+        "stock": "",
+        "pc": pointer_compression,
+        "pc-sandbox": pointer_compression + sandbox,
+        "electron-nosandbox": pointer_compression + electron_all_gn,
+        "electron": pointer_compression + sandbox + electron_all_gn,
+    }
+    variant = os.environ.get("JSC2JS_GN_VARIANT", "").strip() or "electron"
+    if variant not in variants:
+        raise RuntimeError(
+            f"unknown JSC2JS_GN_VARIANT {variant!r}; expected one of {sorted(variants)}"
+        )
+    return variants[variant]
 
 
 def electron_symbol_level_gn_arg(version: str) -> str:
@@ -1066,9 +1083,16 @@ def main():
                 smoke_output = run_rejection_smoke(built_bin)
                 valid_cache = valid_cache_for_version(ver)
                 if valid_cache is not None:
-                    valid_cache_output = run_valid_cache_smoke(
-                        built_bin, valid_cache
-                    )
+                    try:
+                        valid_cache_output = run_valid_cache_smoke(
+                            built_bin, valid_cache
+                        )
+                    except RuntimeError as error:
+                        # Variant experiments must still upload their d8 and
+                        # report the failure instead of aborting the build.
+                        if os.environ.get("JSC2JS_VALID_CACHE_SOFT") != "1":
+                            raise
+                        valid_cache_output = f"JSC2JS_VALID_CACHE_FAILED\n{error}\n"
 
             target_dir = collect_audit_records(artifacts_dir, ver, os_name)
             
