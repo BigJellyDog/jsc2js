@@ -522,6 +522,15 @@ def electron_memory_model_gn_args(version: str) -> str:
     )
 
 
+def electron_symbol_level_gn_arg(version: str) -> str:
+    """Keep debug symbols for V8 >= 14.7 so crashes in d8 can be symbolized."""
+    try:
+        parts = tuple(int(p) for p in version.split(".")[:2])
+    except ValueError:
+        return "symbol_level = 0\n"
+    return "symbol_level = 1\n" if parts >= (14, 7) else "symbol_level = 0\n"
+
+
 def configure_in_tree_gyp(version: str) -> bool:
     """Select V8 5.1's native GYP/Ninja generator, or clear stale batch state."""
     if not uses_in_tree_gyp(version):
@@ -1012,8 +1021,8 @@ def main():
                     'target_cpu = "x64"\n'
                     "is_debug = false\n"
                     "is_component_build = false\n"
-                    "symbol_level = 0\n"
                     "v8_enable_disassembler = true\n"
+                    + electron_symbol_level_gn_arg(ver)
                     + object_print_gn_arg(Path("v8"))
                     + electron_memory_model_gn_args(ver)
                     + linux_legacy_gn_args
@@ -1061,6 +1070,9 @@ def main():
             log(f"Copying {built_bin.name} and {built_snapshot.name} to {target_dir}")
             shutil.copy2(built_bin, target_dir / built_bin.name)
             shutil.copy2(built_snapshot, target_dir / built_snapshot.name)
+            built_pdb = built_bin.with_name(built_bin.name + ".pdb")
+            if built_pdb.exists():
+                shutil.copy2(built_pdb, target_dir / built_pdb.name)
             
             if smoke_output:
                 (target_dir / "runtime_smoke.txt").write_text(
