@@ -42,7 +42,15 @@ jobs:
         os: [windows-2022]
         # GN-arg variants of the Electron memory model (see
         # electron_memory_model_gn_args); each reports its own valid-cache smoke.
-        variant: [stock, pc, pc-sandbox, electron-nosandbox, electron]
+        variant:
+          - nodisasm
+          - nodisasm-electron
+          - nodisasm-combo
+          - static-roots-off
+          - ext-code-space
+          - short-builtin
+          - no-temporal
+          - seed
     env:
       ASSIGNED_JSON: ${{ inputs.versions_json || format('["{0}"]', inputs.version) }}
       DEPOT_TOOLS_WIN_TOOLCHAIN: "0"
@@ -273,7 +281,16 @@ jobs:
               'import json, pathlib, sys; p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text()); d[sys.argv[2]]=sys.argv[3]; p.write_text(json.dumps(d))' \
               "$mapping" "$v8_version" "$cache_path"
           }
-          generate_fixture "14.8.178.33" "42.5.2"
+          # Real-world code (acorn) reaches read-only heap objects tiny
+          # fixtures never touch; d8 builds that disagree with Electron fail
+          # on it with a vector index assertion.
+          if "$JSC2JS_PYTHON3" -c 'import json, os, sys; sys.exit(0 if sys.argv[1] in json.loads(os.environ["ASSIGNED_JSON"]) else 1)' "14.8.178.33"; then
+            npm install --no-audit --no-fund --prefix "$RUNNER_TEMP/acorn" acorn@8.14.0
+            acorn_cache="$RUNNER_TEMP/electron-42.5.2-acorn.jsc"
+            ELECTRON_RUN_AS_NODE=1 npx --yes electron@42.5.2 tests/generate_electron_cache_from_file.cjs "$RUNNER_TEMP/acorn/node_modules/acorn/dist/acorn.js" "$acorn_cache" "14.8.178.33"
+            test -s "$acorn_cache"
+            "$JSC2JS_PYTHON3" -c 'import json, pathlib, sys; p=pathlib.Path(sys.argv[1]); d=json.loads(p.read_text()); d[sys.argv[2]]=sys.argv[3]; p.write_text(json.dumps(d))' "$mapping" "14.8.178.33" "$acorn_cache"
+          fi
           generate_fixture "14.8.178.38" "42.8.1"
           generate_fixture "15.0.1240245" "43.2.0"
           generate_fixture "15.2.124.5" "44.0.0-beta.2"

@@ -263,7 +263,10 @@ def run_valid_cache_smoke(built_bin: Path, cache_path: Path) -> str:
     ):
         raise RuntimeError(
             "valid-cache smoke test failed: "
-            f"exit={completed.returncode} output={output[-4000:]}"
+            f"exit={completed.returncode} "
+            f"deserialize_reached={'JSC2JS_STAGE: deserialize returned' in output}\n"
+            f"HEAD: {output[:600]}\n"
+            f"TAIL: {output[-1500:]}"
         )
     return output
 
@@ -536,6 +539,23 @@ def electron_memory_model_gn_args(version: str) -> str:
         "pc-sandbox": pointer_compression + sandbox,
         "electron-nosandbox": pointer_compression + electron_all_gn,
         "electron": pointer_compression + sandbox + electron_all_gn,
+        # Flags from Electron's process.config that stock d8 leaves unset or
+        # off; each is toggled alone to see which one moves the RO heap size
+        # (Electron 42.5.2: 339760 bytes, stock d8: 276112) and the
+        # ExternalReferenceTable size.
+        "nodisasm": "",
+        "static-roots-off": "v8_enable_static_roots = false\n",
+        "ext-code-space": "v8_enable_external_code_space = true\n",
+        "short-builtin": "v8_enable_short_builtin_calls = true\n",
+        "no-temporal": "v8_enable_temporal_support = false\n",
+        "seed": "v8_random_seed = 314159265\n",
+        "nodisasm-electron": pointer_compression + sandbox + electron_all_gn,
+        "nodisasm-combo": (
+            electron_all_gn
+            + "v8_enable_short_builtin_calls = true\n"
+            + "v8_enable_external_code_space = true\n"
+            + "v8_random_seed = 314159265\n"
+        ),
     }
     variant = os.environ.get("JSC2JS_GN_VARIANT", "").strip() or "electron"
     if variant not in variants:
@@ -543,6 +563,14 @@ def electron_memory_model_gn_args(version: str) -> str:
             f"unknown JSC2JS_GN_VARIANT {variant!r}; expected one of {sorted(variants)}"
         )
     return variants[variant]
+
+
+def disassembler_gn_arg() -> str:
+    """Electron ships without the V8 disassembler; variants named nodisasm*
+    drop it so the external reference table can match Electron's."""
+    variant = os.environ.get("JSC2JS_GN_VARIANT", "").strip()
+    enabled = not variant.startswith("nodisasm")
+    return f"v8_enable_disassembler = {'true' if enabled else 'false'}\n"
 
 
 def electron_symbol_level_gn_arg(version: str) -> str:
@@ -1044,7 +1072,7 @@ def main():
                     'target_cpu = "x64"\n'
                     "is_debug = false\n"
                     "is_component_build = false\n"
-                    "v8_enable_disassembler = true\n"
+                    + disassembler_gn_arg()
                     + electron_symbol_level_gn_arg(ver)
                     + object_print_gn_arg(Path("v8"))
                     + electron_memory_model_gn_args(ver)
@@ -1087,7 +1115,7 @@ def main():
                         valid_cache_output = run_valid_cache_smoke(
                             built_bin, valid_cache
                         )
-                    except RuntimeError as error:
+                    except (RuntimeError, subprocess.TimeoutExpired) as error:
                         # Variant experiments must still upload their d8 and
                         # report the failure instead of aborting the build.
                         if os.environ.get("JSC2JS_VALID_CACHE_SOFT") != "1":
