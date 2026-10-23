@@ -519,6 +519,12 @@ def electron_memory_model_gn_args(version: str) -> str:
         "v8_enable_pointer_compression = true\n"
         "v8_enable_pointer_compression_shared_cage = true\n"
         "v8_enable_sandbox = true\n"
+        # Electron all.gn: embedder fields change JSPromise map sizes (RO heap),
+        # so caches reference RO pages a stock d8 does not lay out.
+        "v8_promise_internal_field_count = 1\n"
+        'v8_embedder_string = "-electron.0"\n'
+        "v8_enable_javascript_promise_hooks = true\n"
+        "v8_enable_snapshot_native_code_counters = false\n"
     )
 
 
