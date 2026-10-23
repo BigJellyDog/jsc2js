@@ -394,7 +394,7 @@ void Shell::LoadJSC(const FunctionCallbackInfo<Value>& args) {{
     const uint32_t source_hash =
         base::ReadLittleEndianValue<uint32_t>(
             cache_start + i::SerializedCodeData::kSourceHashOffset);
-    const std::string placeholder_source(source_hash & 0x7FFFFFFFu, ' ');
+    const std::string placeholder_source(source_hash & 0x7FFFFFFFu, '\\n');
     i::DirectHandle<i::String> source =
         isolate->factory()
             ->NewStringFromOneByte(base::Vector<const uint8_t>(
@@ -406,6 +406,7 @@ void Shell::LoadJSC(const FunctionCallbackInfo<Value>& args) {{
         i::CodeSerializer::Deserialize(isolate, &cached_data, source,
                                        script_details);
     i::DirectHandle<i::SharedFunctionInfo> function;
+    std::cerr << "JSC2JS_STAGE: deserialize returned" << std::endl;
     if (!maybe_function.ToHandle(&function)) {{
       args.GetIsolate()->ThrowException(Exception::Error(
           String::NewFromUtf8(
@@ -439,8 +440,10 @@ void Shell::LoadJSC(const FunctionCallbackInfo<Value>& args) {{
 
       i::Tagged<i::BytecodeArray> bytecode =
           current->GetBytecodeArray(isolate);
+      std::cerr << "JSC2JS_STAGE: print sfi" << std::endl;
       std::cout << "\\nStart SharedFunctionInfo\\n";
       current->SharedFunctionInfoPrint(std::cout);
+      std::cerr << "JSC2JS_STAGE: disassemble" << std::endl;
       std::cout << "\\nStart BytecodeArray\\n";
       bytecode->Disassemble(std::cout);
       std::cout << "\\nEnd BytecodeArray\\n";
